@@ -55,7 +55,7 @@ uint32_t duty = 0;
 float position = 0;
 float setposition = 0;
 float pwm = 0 ;
-uint8_t p = 10;
+uint8_t p = 15;
 float i = 0;
 float d = 0;
 typedef struct _QEIStructure
