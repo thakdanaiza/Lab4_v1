@@ -42,7 +42,6 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim5;
 
 UART_HandleTypeDef huart2;
@@ -51,36 +50,24 @@ UART_HandleTypeDef huart2;
 uint32_t QEIReadRaw;
 float degree;
 arm_pid_instance_f32 PID = {0};
-uint32_t duty = 0;
 float position = 0;
-float setposition = 0;
+float set = 0;
 float pwm = 0 ;
-uint8_t p = 15;
-float i = 0;
-float d = 0;
-typedef struct _QEIStructure
-{
-	uint64_t data[2];
-	uint64_t timestamp[2];
-
-	float QEIposition ;
-	float QEIVelocity;
-}QEIStructureTypedef;
-QEIStructureTypedef QEIData = {0};
-uint64_t _micros = 0;
+uint32_t p = 10;
+float i = 1;
+float d = 2;
+float nowdiff = 0;
+uint32_t s = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_TIM3_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-inline uint64_t micros();
-void QEIEncoderPositionVelocity_Update();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -117,7 +104,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_TIM3_Init();
   MX_TIM5_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
@@ -125,7 +111,7 @@ int main(void)
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_1|TIM_CHANNEL_2);
   HAL_TIM_Base_Start(&htim1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   PID.Kp = p;
   PID.Ki = i;
   PID.Kd = d;
@@ -144,12 +130,34 @@ int main(void)
 	  static uint32_t timestamp = 0;
 	  if(HAL_GetTick() > timestamp)
 	  {
-		  QEIReadRaw = 4294967295 - __HAL_TIM_GET_COUNTER(&htim2);
+		  QEIReadRaw = __HAL_TIM_GET_COUNTER(&htim2);
 		  degree = (QEIReadRaw/3072.00)*360;
 
-		  QEIEncoderPositionVelocity_Update();
-		  pwm = arm_pid_f32 (&PID, setposition-degree);
-		  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,pwm);
+		  //QEIEncoderPositionVelocity_Update();
+		  pwm = arm_pid_f32 (&PID, set-degree);
+		  if (s >= 1)
+		  {
+
+			  if(pwm >= 0)
+			  {
+				  s = 2;
+				  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,pwm);
+				  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,0);
+			  }
+			  else
+			  {
+				  s = 3;
+				  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,0);
+				  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,pwm*-1);
+			  }
+		  }
+
+		  if ((pwm*1 >20 && pwm < 20) || (pwm < 20 && pwm*-1 < 20))
+		  {
+			  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,0);
+			  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,0);
+		  }
+		  nowdiff = set - degree;
 		  timestamp = HAL_GetTick() + 10;
 	  }
 
@@ -260,6 +268,10 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -299,7 +311,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = QEI_PERIOD-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
@@ -324,55 +336,6 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_Encoder_InitTypeDef sConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = QEI_PERIOD-1;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
-  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
-  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 0;
-  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
-  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 0;
-  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -488,45 +451,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-int _write(int file,char *ptr,int len)
-{
-	int i;
-	for(i = 0; i < len; i++)
-	{
-		ITM_SendChar(*ptr++);
-	}
-	return len;
-}
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	if(htim == &htim5)
-	{
-		_micros += UINT32_MAX;
-	}
-}
-uint64_t micros()
-{
-	return __HAL_TIM_GET_COUNTER(&htim5) + _micros;
-}
-void QEIEncoderPositionVelocity_Update()
-{
-	QEIData.timestamp[0] = micros();
-	uint32_t couterPosition = __HAL_TIM_GET_COUNTER(&htim2);
-	QEIData.data[0] = couterPosition;
 
-	QEIData.QEIposition = couterPosition % 3074 ;
-
-	int32_t diffPosition = QEIData.data[0] - QEIData.data[1];
-	float difftime = (QEIData.timestamp[0] - QEIData.timestamp[1]);
-
-	if(diffPosition > QEI_PERIOD >> 1) diffPosition -= QEI_PERIOD;
-	if(diffPosition < -(QEI_PERIOD >> 1)) diffPosition += QEI_PERIOD;
-
-	QEIData.QEIVelocity = (diffPosition * 1000000)/difftime;
-
-	QEIData.data[1] = QEIData.data[0];
-	QEIData.timestamp[1] = QEIData.timestamp[0];
-}
 /* USER CODE END 4 */
 
 /**
